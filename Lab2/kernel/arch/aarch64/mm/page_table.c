@@ -192,6 +192,80 @@ static int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va, ptp_t **next_ptp,
                 return BLOCK_PTP;
 }
 
+static int map_range_in_pgtbl_common(void *pgtbl, vaddr_t va, paddr_t pa,
+                                     size_t len, vmr_prop_t flags, int kind,
+                                     __maybe_unused long *rss)
+{
+        /* LAB 2 TODO 4 BEGIN */
+        /*
+         * Hint: Walk through each level of page table using `get_next_ptp`,
+         * create new page table page if necessary, fill in the final level
+         * pte with the help of `set_pte_flags`. Iterate until all pages are
+         * mapped.
+         * Since we are adding new mappings, there is no need to flush TLBs.
+         * Return 0 on success.
+         */
+        /* BLANK BEGIN */
+        ptp_t *cur_ptp, *next_ptp;      // The current page table and next page table.
+        pte_t *pte;                     // page table entry.
+        int ret;                        // The return result.
+ 
+        vaddr_t cur_va = va;
+        paddr_t cur_pa = pa;
+        u64 i = 0;
+        while(i < len)
+        {
+                cur_ptp = (ptp_t *) pgtbl;      // get the L0 page.
+                cur_va = va + i;
+                cur_pa = pa + i;
+                ret = get_next_ptp(cur_ptp, L0, cur_va, &next_ptp, &pte, true, rss);
+                if(ret < 0) 
+                        return ret; // should be avoid only when no memory!
+                
+                cur_ptp = next_ptp;
+                ret = get_next_ptp(cur_ptp, L1, cur_va, &next_ptp, &pte, true, rss);
+                if(ret < 0)
+                        return ret; // should be avoid only when no memory!
+                else if (ret == BLOCK_PTP)
+                {
+                        i += (1 << L1_INDEX_SHIFT);
+                        if(rss)
+                                *rss += PAGE_SIZE;      // 分配了物理页块，注意增加物理页块的数目。
+                        continue;
+                }
+                
+                cur_ptp = next_ptp;
+                ret = get_next_ptp(cur_ptp, L2, cur_va, &next_ptp, &pte, true, rss);
+                if(ret < 0)
+                        return ret;
+                else if (ret == BLOCK_PTP)
+                {
+                        i += (1 << L2_INDEX_SHIFT);
+                        if(rss)
+                                *rss += PAGE_SIZE;
+                        continue;
+                }
+ 
+                // get the virtual page number from va, and find it through next_ptp.
+                cur_ptp = next_ptp;
+                vaddr_t virtual_page_number = GET_L3_INDEX(cur_va);
+                if(rss)
+                        *rss += PAGE_SIZE; // 分配了物理页块，注意增加物理页块的数目。
+                pte = &(cur_ptp -> ent[virtual_page_number]);
+                // get the physics number from pa to fill in page table L3.
+                pte -> l3_page.pfn = cur_pa >> L3_INDEX_SHIFT;
+                pte -> l3_page.is_valid = 1;
+                pte -> l3_page.is_page = 1;
+                set_pte_flags(pte, flags, kind);
+                i +=(1 << L3_INDEX_SHIFT); // 每次都需要将i增加对应的4kb（或其他物理地址长度）。
+        }
+        /* BLANK END */
+        /* LAB 2 TODO 4 END */
+        dsb(ishst);
+        isb();
+        return 0;
+}
+
 int debug_query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
 {
         ptp_t *l0_ptp, *l1_ptp, *l2_ptp, *l3_ptp;
@@ -300,27 +374,69 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
          * `-ENOMAPPING` if the va is not mapped.
          */
         /* BLANK BEGIN */
-
-        /* BLANK END */
-        /* LAB 2 TODO 4 END */
-        return 0;
-}
-
-static int map_range_in_pgtbl_common(void *pgtbl, vaddr_t va, paddr_t pa,
-                                     size_t len, vmr_prop_t flags, int kind,
-                                     __maybe_unused long *rss)
-{
-        /* LAB 2 TODO 4 BEGIN */
-        /*
-         * Hint: Walk through each level of page table using `get_next_ptp`,
-         * create new page table page if necessary, fill in the final level
-         * pte with the help of `set_pte_flags`. Iterate until all pages are
-         * mapped.
-         * Since we are adding new mappings, there is no need to flush TLBs.
-         * Return 0 on success.
-         */
-        /* BLANK BEGIN */
-
+        ptp_t *cur_ptp, *next_ptp;      // 当前页表页和下一个页表页。
+        pte_t *pte;                     // 页表项。
+        int ret;                        // 当前页表项的状态。
+ 
+        // 获得L0页表。注意不需要分配新的页表页。
+        cur_ptp = (ptp_t *) pgtbl;
+        ret = get_next_ptp(cur_ptp, L0, va, &next_ptp, &pte, false, NULL);
+        if (ret < 0) 
+                return ret;     // -ENOMAPPING，直接返回即可。
+        else if (ret == BLOCK_PTP)
+        {
+                // No L0_block.
+                kdebug("L0 BLOCK!\n");
+                return -1;
+        }
+ 
+        // 获得L1页表。
+        cur_ptp = next_ptp;
+        ret = get_next_ptp(cur_ptp, L1, va, &next_ptp, &pte, false, NULL);
+        if (ret < 0) 
+                return ret;
+        else if (ret == BLOCK_PTP)
+        {
+                /**
+                 * 47-30 位是l1的页表项中存储的物理块号。
+                 * 29-0 位是物理块内偏移。
+                 */
+                *pa = (pte -> l1_block.pfn << L1_INDEX_SHIFT) + (GET_VA_OFFSET_L1(va));
+                if (entry)      // 注意entry不能为空！如果为空仍然修改会导致指向错误的物理页。
+                        *entry = pte;
+                return ret;
+        }
+ 
+        // Get L2 page table.
+        cur_ptp = next_ptp;
+        ret = get_next_ptp(cur_ptp, L2, va, &next_ptp, &pte, false, NULL);
+        if(ret < 0) 
+                return ret;
+        else if (ret == BLOCK_PTP)
+        {
+                /**
+                 * 47-21 位是l2的页表项中存储的物理块号。
+                 * 20-0 位是物理块内偏移。
+                 */
+                *pa = (pte -> l2_block.pfn << L2_INDEX_SHIFT) + (GET_VA_OFFSET_L2(va));
+                if (entry)
+                        *entry = pte;
+                return ret;
+        }
+ 
+        // Get L3 page table.
+        cur_ptp = next_ptp;
+        ret = get_next_ptp(cur_ptp, L3, va, &next_ptp, &pte, false, NULL);
+        if(ret < 0) 
+                return ret;
+        else if(ret == BLOCK_PTP)
+        {
+                kdebug("why L3 block???\n");
+                return -1;
+        }
+        *pa = (pte -> l3_page.pfn << L3_INDEX_SHIFT) + (GET_VA_OFFSET_L3(va));
+        if (entry)
+                *entry = pte;
         /* BLANK END */
         /* LAB 2 TODO 4 END */
         dsb(ishst);
@@ -398,7 +514,61 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len,
          * Return 0 on success.
          */
         /* BLANK BEGIN */
-
+        ptp_t *cur_ptp, *next_ptp;      // The current page table and next page table.
+        ptp_t *l0_ptp, *l1_ptp, *l2_ptp, *l3_ptp;
+        pte_t *pte;                     // page table entry.
+        int ret;                        // The return result.
+ 
+        u64 i = 0;
+        vaddr_t cur_va;
+        while(i < len)
+        {
+                cur_ptp = (ptp_t *) pgtbl;
+                l0_ptp = cur_ptp;
+                cur_va = va + i;
+                ret = get_next_ptp(cur_ptp, L0, cur_va, &next_ptp, &pte, false, rss);
+                if(ret < 0)
+                        return ret;
+                
+                cur_ptp = next_ptp;
+                l1_ptp = cur_ptp;
+                ret = get_next_ptp(cur_ptp, L1, cur_va, &next_ptp, &pte, false, rss);
+                if(ret < 0)
+                        return ret;
+                else if(ret == BLOCK_PTP)
+                {
+                        i += (1 << L1_INDEX_SHIFT);
+                        pte -> pte = 0; // PTE_DESCRIPTOR_INVALID;
+                        continue;
+                }
+ 
+                cur_ptp = next_ptp;
+                l2_ptp = cur_ptp;
+                ret = get_next_ptp(cur_ptp, L2, cur_va, &next_ptp, &pte, false, rss);
+                if(ret < 0)
+                        return ret;
+                else if(ret == BLOCK_PTP)
+                {
+                        i += (1 << L2_INDEX_SHIFT);
+                        pte -> pte = 0; // PTE_DESCRIPTOR_INVALID;
+                        continue;
+                }
+ 
+                cur_ptp = next_ptp;
+                l3_ptp = cur_ptp;
+                ret = get_next_ptp(cur_ptp, L3, cur_va, &next_ptp, &pte, false, rss);
+                if(ret < 0)
+                        return ret;
+                else
+                {
+                        i += (1 << L3_INDEX_SHIFT);
+                        pte -> pte = 0;
+                        // Delete physical pages.
+                        if (rss)
+                                *rss -= PAGE_SIZE;
+                        recycle_pgtable_entry(l0_ptp,l1_ptp,l2_ptp,l3_ptp,cur_va,rss);
+                }
+        }
         /* BLANK END */
         /* LAB 2 TODO 4 END */
 
@@ -418,7 +588,50 @@ int mprotect_in_pgtbl(void *pgtbl, vaddr_t va, size_t len, vmr_prop_t flags)
          * Return 0 on success.
          */
         /* BLANK BEGIN */
-
+        ptp_t *cur_ptp, *next_ptp;      // The current page table and next page table.
+        pte_t *pte;                     // page table entry.
+        int ret;                        // The return result.
+ 
+        u64 i = 0;
+        vaddr_t cur_va;
+        while(i < len)
+        {
+                cur_ptp = (ptp_t *) pgtbl;
+                cur_va = va + i;
+                ret = get_next_ptp(cur_ptp, L0, cur_va, &next_ptp, &pte, false, NULL);
+                if(ret < 0)
+                        return ret;
+                
+                cur_ptp = next_ptp;
+                ret = get_next_ptp(cur_ptp, L1, cur_va, &next_ptp, &pte, false, NULL);
+                if(ret < 0)
+                        return ret;
+                else if(ret == BLOCK_PTP)
+                {
+                        i += (1 << L1_INDEX_SHIFT);
+                        continue;
+                }
+ 
+                cur_ptp = next_ptp;
+                ret = get_next_ptp(cur_ptp, L2, cur_va, &next_ptp, &pte, false, NULL);
+                if(ret < 0)
+                        return ret;
+                else if(ret == BLOCK_PTP)
+                {
+                        i += (1 << L2_INDEX_SHIFT);
+                        continue;
+                }
+ 
+                cur_ptp = next_ptp;
+                ret = get_next_ptp(cur_ptp, L3, cur_va, &next_ptp, &pte, false, NULL);
+                if(ret < 0)
+                        return ret;
+                else
+                {
+                        i += (1 << L3_INDEX_SHIFT);
+                        set_pte_flags(pte, flags, USER_PTE);
+                }
+        }
         /* BLANK END */
         /* LAB 2 TODO 4 END */
         return 0;

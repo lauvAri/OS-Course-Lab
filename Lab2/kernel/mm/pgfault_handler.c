@@ -209,7 +209,10 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                         /* LAB 2 TODO 7 BEGIN */
                         /* BLANK BEGIN */
                         /* Hint: Allocate a physical page and clear it to 0. */
-
+                        //在get_page_from_pmo失败后，我们需要重新分配物理页
+                        void * va = get_pages(0);
+                        pa = virt_to_phys(va);
+                        memset(va, 0, PAGE_SIZE);
                         /* BLANK END */
                         /*
                          * Record the physical page in the radix tree:
@@ -222,6 +225,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                         lock(&vmspace->pgtbl_lock);
                         /* BLANK BEGIN */
 
+                        //分配完物理页之后，将其添加到当前虚拟空间基地址指向的页表结构中
+                        map_range_in_pgtbl(vmspace->pgtbl, fault_addr, pa, PAGE_SIZE, perm, NULL);
                         /* BLANK END */
                         unlock(&vmspace->pgtbl_lock);
                 } else {
@@ -251,6 +256,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                                 lock(&vmspace->pgtbl_lock);
                                 /* BLANK BEGIN */
 
+                                //已经存在了物理页，但是是因为**换页**导致的缺失，只需要重新换入/映射即可
+                                map_range_in_pgtbl(vmspace->pgtbl, fault_addr, pa, PAGE_SIZE, perm, NULL);
                                 /* BLANK END */
                                 /* LAB 2 TODO 7 END */
                                 unlock(&vmspace->pgtbl_lock);

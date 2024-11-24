@@ -139,20 +139,17 @@ static void choose_new_current_slab(struct slab_pointer * __maybe_unused pool)
         /* LAB 2 TODO 2 BEGIN */
         /* Hint: Choose a partial slab to be a new current slab. */
         /* BLANK BEGIN */
-        struct list_head *list;
-
-        list = &(pool->partial_slab_list);
-        if (list_empty(list)) {
-                pool->current_slab = NULL;
-        } else {
-                struct slab_header *slab;
-
-                slab = (struct slab_header *) list_entry(
-                        list->next, struct slab_header, node
-                );
-                pool->current_slab = slab;
-                list_del(list->next);
+        // 检查当前的partial_list是否是
+        if(list_empty(&(pool -> partial_slab_list)))
+        {
+                int order = pool -> current_slab -> order;
+                pool -> current_slab = init_slab_cache(order, SIZE_OF_ONE_SLAB);
+                return;
         }
+        // 获得新的slab。这里还是使用了前面list的contanier宏来从一个节点获得其属于的slab。
+        struct list_head * partial_slab_list = &(pool -> partial_slab_list);
+        pool -> current_slab = list_entry(partial_slab_list -> next, struct slab_header, node);
+        list_del(&(pool -> current_slab -> node));
         /* BLANK END */
         /* LAB 2 TODO 2 END */
 }
@@ -183,7 +180,23 @@ static void *alloc_in_slab_impl(int order)
          * If current slab is full, choose a new slab as the current one.
          */
         /* BLANK BEGIN */
-
+        // 判断是否该slab为满。如果满了分配一个新的slab。
+        if (current_slab -> current_free_cnt == 0)
+        {
+                choose_new_current_slab(&slab_pool[order]);
+        }
+        // 确认是否分配到了slab。否则返回空。
+        current_slab = slab_pool[order].current_slab; 
+        if (current_slab == NULL) 
+        {
+                unlock(&slabs_locks[order]);
+                return NULL;
+        }
+        // 修改当前的自由slot的头指针指向。从current_slab中获得自由list的头，将头指针指向第一个自由的slot，随后将自由数减去一。
+        // 因为第一个slot用于存储当前slot的信息。
+        free_list = (struct slab_slot_list *) current_slab -> free_list_head;
+        current_slab -> free_list_head = free_list -> next_free;
+        current_slab -> current_free_cnt--;
         /* BLANK END */
         /* LAB 2 TODO 2 END */
 
@@ -310,8 +323,10 @@ void free_in_slab(void *addr)
          * Hint: Free an allocated slot and put it back to the free list.
          */
         /* BLANK BEGIN */
-
-        UNUSED(slot);
+        // 将当前等待释放的slot的下一个节点指向自由链表的头。
+        slot -> next_free = slab -> free_list_head;
+        slab -> free_list_head = slot; // 成为新的头！
+        slab -> current_free_cnt++;
         /* BLANK END */
         /* LAB 2 TODO 2 END */
 

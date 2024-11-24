@@ -54,8 +54,43 @@ __maybe_unused static struct page *split_chunk(struct phys_mem_pool *__maybe_unu
          * a suitable free list.
          */
         /* BLANK BEGIN */
-        return NULL;
+        //return NULL;
+        // if (chunk->order == BUDDY_MAX_ORDER - 1) {
+        //         return chunk;
+        // }
+        // pool->free_lists[chunk->order].nr_free--;
+        // list_del(&(chunk->node));
+        
+        // chunk->order--;
+        // struct page* buddy = get_buddy_chunk(pool, chunk);
 
+        // struct list_head* cur_list_head = &(pool->free_lists[chunk->order].free_list);
+        // list_add(&(buddy->node), cur_list_head);
+        // pool->free_lists[chunk->order].nr_free += 2;
+
+        // return split_chunk(pool, order, chunk);
+         if (chunk -> order == order)
+        {
+                return chunk;
+        }
+        else
+        {
+                // 将要进行分裂，将对应阶次的自由链表所含有的自由页数减去1。
+                pool->free_lists[chunk->order].nr_free--;
+                list_del(&(chunk ->node));
+ 
+                // 减少阶次后获得伙伴物理页块。获得的伙伴页块是将本物理页块均分后的后半部分。
+                chunk -> order--;
+                struct page * buddy = get_buddy_chunk(pool,chunk); 
+ 
+                // 将多余的伙伴放入到新的阶次的自由链表中，并且该阶次的自由链表增加2.
+                struct list_head * cur_list_head = &(pool->free_lists[chunk->order].free_list);
+                list_add(&(buddy->node), cur_list_head);
+                pool->free_lists[chunk->order].nr_free+=2;
+ 
+                // 继续分裂直到获得自己需要的阶次的内存块后返回。
+                return split_chunk(pool, order, chunk);
+        }
         /* BLANK END */
         /* LAB 2 TODO 1 END */
 }
@@ -71,40 +106,61 @@ __maybe_unused static struct page * merge_chunk(struct phys_mem_pool *__maybe_un
          * if possible.
          */
         /* BLANK BEGIN */
-        struct page *buddy_chunk;
+        // struct page *buddy_chunk;
 
-        /*The @chunk has already been the largest one.*/
-        if (chunk->order == (BUDDY_MAX_ORDER - 1)) {
+        // /*The @chunk has already been the largest one.*/
+        // if (chunk->order == (BUDDY_MAX_ORDER - 1)) {
+        //         return chunk;
+        // }
+
+        // /*Locate the buddy_chunk of @chunk.*/
+        // buddy_chunk = get_buddy_chunk(pool, chunk);
+
+        // /*If the buddy_chunk does not exist, no further merge is required*/
+        // if (buddy_chunk == NULL) {
+        //         return chunk;
+        // }
+
+        // /*The buddy_chunk is not free as a whole, no further merge is required*/
+        // if (buddy_chunk->order != chunk->order) {
+        //         return chunk;
+        // }
+
+        // /*Remove the buddy_chunk from its current free list.*/
+        // list_del(&(buddy_chunk->node));
+        // pool->free_lists[buddy_chunk->order].nr_free -= 1;
+
+        // /*Merge the two buddies and get a larger chunk @chunk (order + 1).*/
+        // buddy_chunk->order += 1;
+        // chunk->order += 1;
+        // if (chunk > buddy_chunk) {
+        //         chunk = buddy_chunk;
+        // }
+
+        // /*Keeping merging*/
+        // return merge_chunk(pool, chunk);
+        // 情况1，达到最大阶次。
+        if(chunk -> order == BUDDY_MAX_ORDER - 1)
+                return chunk;
+        
+        // 情况2.
+        struct page * merging_buddy = get_buddy_chunk(pool, chunk);
+        if(merging_buddy == NULL || merging_buddy -> allocated || merging_buddy->order != chunk -> order)
+        {
                 return chunk;
         }
-
-        /*Locate the buddy_chunk of @chunk.*/
-        buddy_chunk = get_buddy_chunk(pool, chunk);
-
-        /*If the buddy_chunk does not exist, no further merge is required*/
-        if (buddy_chunk == NULL) {
-                return chunk;
+        // 存在可以合并的伙伴块，进行合并。注意选取较低地址的块作为新的合并块的地址。
+        else
+        {
+                // Delete the chunk from list.
+                list_del(&(merging_buddy -> node)); 
+                pool -> free_lists[merging_buddy->order].nr_free--;
+                // merge from tail.
+                if (merging_buddy < chunk)
+                        chunk = merging_buddy;
+                chunk -> order++;       // 将order增加1即可。这样这两个块都会包括在chunk中。
+                return merge_chunk(pool, chunk);
         }
-
-        /*The buddy_chunk is not free as a whole, no further merge is required*/
-        if (buddy_chunk->order != chunk->order) {
-                return chunk;
-        }
-
-        /*Remove the buddy_chunk from its current free list.*/
-        list_del(&(buddy_chunk->node));
-        pool->free_lists[buddy_chunk->order].nr_free -= 1;
-
-        /*Merge the two buddies and get a larger chunk @chunk (order + 1).*/
-        buddy_chunk->order += 1;
-        chunk->order += 1;
-        if (chunk > buddy_chunk) {
-                chunk = buddy_chunk;
-        }
-
-        /*Keeping merging*/
-        return merge_chunk(pool, chunk);
-        //return NULL;
 
         /* BLANK END */
         /* LAB 2 TODO 1 END */
@@ -177,9 +233,28 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
          * in the free lists, then split it if necessary.
          */
         /* BLANK BEGIN */
-        UNUSED(cur_order);
-        UNUSED(free_list);
-
+        for (cur_order = order; cur_order < BUDDY_MAX_ORDER; cur_order++)
+        {
+                // Check current nr_free. Then get the page out.
+                if (pool -> free_lists[cur_order].nr_free > 0)
+                {
+                        free_list = &(pool -> free_lists[cur_order].free_list);
+                        page = list_entry(free_list -> next, struct page, node);
+                        break;
+                }
+        }
+ 
+        // 注意！如果实在没有页表分配时需要直接进入out部分。这是为了防止二次free。
+        if (page == NULL)
+        {
+                goto out;
+        }
+ 
+        // 确认阶次或分裂页表。
+        page = split_chunk(pool, order, page);
+        list_del(&(page->node));
+        page -> allocated = 1;
+        pool -> free_lists[page->order].nr_free--;
         /* BLANK END */
         /* LAB 2 TODO 1 END */
 out: __maybe_unused
@@ -199,18 +274,13 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
          * a suitable free list.
          */
         /* BLANK BEGIN */
-        UNUSED(free_list);
-        UNUSED(order);
         /*Mark the chunk @page as free*/
-        page->allocated = 0;
-        /*Merge the freed chunk*/
-        page = merge_chunk(pool, page);
-
-        /*Put the merged chunk into its corresponding free list*/
-        order = page->order;
-        free_list = &(pool->free_lists[order].free_list);
-        list_add(&page->node, free_list);
-        pool->free_lists[order].nr_free += 1;
+        page -> allocated = 0;
+        page = merge_chunk(pool, page); // merge until cannot merge.
+        pool -> free_lists[page -> order].nr_free++;
+        order = page -> order;
+        free_list = &(pool -> free_lists[order].free_list);
+        list_append(&(page->node), free_list);
         /* BLANK END */
         /* LAB 2 TODO 1 END */
 

@@ -463,7 +463,17 @@ __maybe_unused struct vmregion *find_vmr_for_va(struct vmspace *vmspace,
         /* LAB 2 TODO 6 BEGIN */
         /* Hint: Find the corresponding vmr for @addr in @vmspace */
         /* BLANK BEGIN */
-        return NULL;
+        //return NULL;
+        struct rb_node *result_node = rb_search(&vmspace->vmr_tree, (const void *)addr, cmp_vmr_and_va);
+        if (result_node) 
+        {
+                kdebug("FOUND %p \n", addr);
+        }
+        else 
+        {
+                kdebug("Not FOUND %p \n", addr);
+        }
+        return result_node ? rb_entry(result_node, struct vmregion, tree_node) : NULL;
         /* BLANK END */
         /* LAB 2 TODO 6 END */
 }
