@@ -271,9 +271,9 @@ void create_root_thread(void)
                 struct pmobject *segment_pmo = NULL;
                 /* LAB 3 TODO BEGIN */
                 //UNUSED(segment_pmo);
-                 size_t pmo_size = ROUND_UP(memsz, PAGE_SIZE);
+                size_t pmo_size = ROUND_UP(memsz, PAGE_SIZE);
  
-                vaddr_t segment_content_kvaddr = ((unsigned long) &binary_procmgr_bin_start) + offset;
+                vaddr_t segment_content_kvaddr = ((unsigned long) &binary_procmgr_bin_start) + ROOT_BIN_HDR_SIZE + offset;
                 /* LAB 3 TODO END */
                 BUG_ON(filesz != memsz);
                 ret = create_pmo(PAGE_SIZE,
@@ -290,6 +290,12 @@ void create_root_thread(void)
 
                 /* LAB 3 TODO BEGIN */
                 /* Copy elf file contents into memory*/
+                // memset(((void*) phys_to_virt(segment_pmo->start)),
+                //        0,
+                //        segment_pmo->size);
+                // memcpy((void*)phys_to_virt(segment_pmo->start),
+                //        (void*)(((unsigned long)&binary_procmgr_bin_start) + ROOT_BIN_HDR_SIZE + offset),
+                //        filesz);
                 segment_pmo -> start = virt_to_phys(segment_content_kvaddr);
                 segment_pmo -> size = pmo_size;
                 /* LAB 3 TODO END */
