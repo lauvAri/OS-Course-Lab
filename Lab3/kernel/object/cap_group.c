@@ -356,7 +356,9 @@ cap_t sys_create_cap_group(unsigned long cap_group_args_p)
         }
         /* LAB 3 TODO BEGIN */
         /* initialize cap group from user*/
-
+        //初始化能力组，为进程分配用户id
+        cap_group_init_user(new_cap_group, BASE_OBJECT_NUM, &args);
+        new_cap_group->pid = args.pid;
         /* LAB 3 TODO END */
 
         cap = cap_alloc(current_cap_group, new_cap_group);
@@ -380,7 +382,7 @@ cap_t sys_create_cap_group(unsigned long cap_group_args_p)
 
         /* 2st cap is vmspace */
         /* LAB 3 TODO BEGIN */
-
+        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace));
         /* LAB 3 TODO END */
 
         if (!vmspace) {
@@ -418,22 +420,25 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
         cap_t slot_id;
 
         /* LAB 3 TODO BEGIN */
-        UNUSED(vmspace);
-        UNUSED(cap_group);
-
+        //UNUSED(vmspace);
+        //UNUSED(cap_group);
+        //分配能力组对象
+        cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*cap_group));
         /* LAB 3 TODO END */
         BUG_ON(!cap_group);
 
         /* LAB 3 TODO BEGIN */
         /* initialize cap group with common, use ROOT_CAP_GROUP_BADGE */
-
+        //按照注释调用common初始化能力组
+        cap_group_init_common(cap_group, BASE_OBJECT_NUM, ROOT_CAP_GROUP_BADGE);
         /* LAB 3 TODO END */
         slot_id = cap_alloc(cap_group, cap_group);
 
         BUG_ON(slot_id != CAP_GROUP_OBJ_ID);
 
         /* LAB 3 TODO BEGIN */
-
+        //分配虚拟地址空间
+        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace));
         /* LAB 3 TODO END */
         BUG_ON(!vmspace);
 
@@ -441,7 +446,8 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
         vmspace_init(vmspace, ROOT_PROCESS_PCID);
 
         /* LAB 3 TODO BEGIN */
-
+        //为自身分配槽id
+        slot_id = cap_alloc(cap_group, vmspace);
         /* LAB 3 TODO END */
 
         BUG_ON(slot_id != VMSPACE_OBJ_ID);

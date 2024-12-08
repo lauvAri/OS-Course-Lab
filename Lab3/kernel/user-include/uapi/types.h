@@ -23,4 +23,5 @@ typedef int badge_t;
  * NOTE: When defining new capability rights, it is necessary to be careful
  * NOT to cause CONFLICTS between the above two types of rights.
  */
+//权力分为两类，一种是对象独有的权力 一种是普遍的权力
 typedef int cap_right_t;

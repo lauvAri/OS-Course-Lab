@@ -23,7 +23,9 @@ void init_thread_ctx(struct thread *thread, vaddr_t stack, vaddr_t func,
 
         /* LAB 3 TODO BEGIN */
         /* SP_EL0, ELR_EL1, SPSR_EL1*/
-
+        thread->thread_ctx->ec.reg[SP_EL0] = stack; // 用户栈寄存器
+        thread->thread_ctx->ec.reg[ELR_EL1] = func; // PC寄存器
+        thread->thread_ctx->ec.reg[SPSR_EL1] = SPSR_EL1_EL0t; // 状态寄存器
         /* LAB 3 TODO END */
 
         /* Set the state of the thread */
